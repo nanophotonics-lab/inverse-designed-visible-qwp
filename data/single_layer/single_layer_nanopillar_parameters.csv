@@ -1,0 +1,2 @@
+structure,period_x_nm,period_y_nm,width_x_nm,width_y_nm,height_nm,substrate_material,substrate_thickness_nm,pillar_material
+rectangular_nanopillar,200,200,60,140,600,SiO2,500,TiO2

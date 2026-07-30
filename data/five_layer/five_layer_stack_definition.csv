@@ -1,0 +1,10 @@
+section,type,z_index_start,z_index_end,grid_weights,physical_thickness_nm,lateral_x_width_nm,description
+P1,patterned,0,4,5,100,200,optimized TiO2/air mask
+I1,fixed_interlayer,5,5,1,20,160,fixed TiO2; x-inset by 20 nm per side
+P2,patterned,6,10,5,100,200,optimized TiO2/air mask
+I2,fixed_interlayer,11,11,1,20,160,fixed TiO2; x-inset by 20 nm per side
+P3,patterned,12,18,7,120,200,optimized TiO2/air mask
+I3,fixed_interlayer,19,19,1,20,160,fixed TiO2; x-inset by 20 nm per side
+P4,patterned,20,24,5,100,200,optimized TiO2/air mask
+I4,fixed_interlayer,25,25,1,20,160,fixed TiO2; x-inset by 20 nm per side
+P5,patterned,26,30,5,100,200,optimized TiO2/air mask
