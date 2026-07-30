@@ -1,8 +1,8 @@
 # Visible QWP design structures
 
-This repository provides the final structures and visualization scripts for
-three visible-light quarter-wave-plate (QWP) design spaces evaluated in the
-associated manuscript:
+This repository provides the final structure data and a three-dimensional
+rendering script for the visible-light quarter-wave-plate (QWP) design spaces
+evaluated in the associated manuscript:
 
 1. fully free-form inverse design;
 2. five-layer constrained inverse design;
@@ -27,9 +27,7 @@ inverse-designed-visible-qwp/
 │       ├── README.md
 │       └── single_layer_nanopillar_parameters.csv
 └── scripts/
-    ├── plot_optimized_qwp_structure.py
-    ├── plot_five_layer_qwp_structure.py
-    └── plot_single_layer_nanopillar.py
+    └── render_qwp_from_npy.py
 ```
 
 ## Common simulation geometry
@@ -52,12 +50,6 @@ structure.
 - Flatten/reshape convention: C-order
 - Values: `0 = air`, `1 = TiO2`
 
-Plot it from the repository root:
-
-```bash
-python scripts/plot_optimized_qwp_structure.py
-```
-
 ## 2. Five-layer constrained inverse design
 
 The five-layer structure is stored in `data/five_layer/` as a binary
@@ -74,22 +66,17 @@ The bottom-to-top stack is:
 P1 / I1 / P2 / I2 / P3 / I3 / P4 / I4 / P5
 ```
 
-Patterned-layer thicknesses are `100, 100, 120, 100, and 100 nm`.
-Each fixed TiO2 interlayer is `20 nm` thick and `160 nm` wide along x.
-The detailed index ranges are provided in
-`data/five_layer/five_layer_stack_definition.csv`.
+The nominal patterned-layer thicknesses are `100, 100, 120, 100, and
+100 nm`, and each fixed TiO2 interlayer has a nominal thickness of `20 nm`.
 
-Plot a cross-section:
+In the released 31-sample z-directed representation, the grid weights are
+allocated as `5 / 1 / 5 / 1 / 7 / 1 / 5 / 1 / 5` for
+`P1 / I1 / P2 / I2 / P3 / I3 / P4 / I4 / P5`, respectively.
 
-```bash
-python scripts/plot_five_layer_qwp_structure.py
-```
-
-Example x–z cross-section:
-
-```bash
-python scripts/plot_five_layer_qwp_structure.py --axis y --index 5
-```
+Each interlayer is `160 nm` wide along x. Detailed index ranges are provided
+in `data/five_layer/five_layer_stack_definition.csv`. The binary `.npy` file
+is the authoritative numerical representation used for visualization and
+reproduction.
 
 ## 3. Single-layer rectangular nanopillar
 
@@ -106,20 +93,60 @@ Its authoritative geometry definition is:
 data/single_layer/single_layer_nanopillar_parameters.csv
 ```
 
-No voxelized `.npy` file is provided for this structure because an exact
-parameter definition avoids grid-dependent geometric approximation.
+No voxelized `.npy` file is provided for this structure because the exact
+parameter definition avoids grid-dependent geometric approximation. The
+NPY-based renderer described below therefore applies to the fully free-form
+and five-layer structures.
 
-Plot its top view:
+## 3D unit-cell rendering
 
-```bash
-python scripts/plot_single_layer_nanopillar.py
-```
-
-Plot an x–z side view:
+Install the required packages from the repository root:
 
 ```bash
-python scripts/plot_single_layer_nanopillar.py --view xz
+python -m pip install -r requirements.txt
 ```
+
+Render the fully free-form structure:
+
+```bash
+python scripts/render_qwp_from_npy.py
+```
+
+Render the five-layer structure:
+
+```bash
+python scripts/render_qwp_from_npy.py \
+  --input data/five_layer/five_layer_qwp_binary_structure_3d.npy \
+  --prefix five_layer_qwp
+```
+
+Rendered images are saved in:
+
+```text
+outputs/renders/
+```
+
+For each camera azimuth, the script saves:
+
+- `*_raw.png`: direct PyVista rendering;
+- `*_tight.png`: rendering after white-margin removal;
+- `*_final.png`: rendering after contrast, sharpening, and graphite-gray
+  structure post-processing.
+
+The physical SiO2 substrate thickness is `500 nm`. In the rendered image,
+the displayed substrate thickness is reduced to `30%` of its physical value
+solely for visual clarity. This visual scaling does not modify the released
+structure data or the simulation geometry.
+
+The default camera azimuths are `225°` and `315°`. Alternative views can be
+specified using `--azimuths`, for example:
+
+```bash
+python scripts/render_qwp_from_npy.py --azimuths 225
+```
+
+Rendering details can vary slightly with the PyVista, VTK, and graphics
+backend versions.
 
 ## Plain-text and indexed formats
 
@@ -131,14 +158,6 @@ cross-sections. In every block:
 - the block equals `structure[:, :, z_index].T`.
 
 The indexed CSV files contain explicit `ix`, `iy`, `iz`, and `rho` columns.
-
-## Python environment
-
-Install the required packages:
-
-```bash
-python -m pip install -r requirements.txt
-```
 
 ## Citation
 
