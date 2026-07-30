@@ -1,2 +1,3 @@
 numpy>=1.24
-matplotlib>=3.7
+pyvista>=0.43
+Pillow>=10.0
