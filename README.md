@@ -1,7 +1,7 @@
 # Visible QWP design structures
 
 This repository provides the final structure data, source data underlying
-Figures 3 and 4, and a three-dimensional rendering script for the
+Figures 2--4, and a three-dimensional rendering script for the
 visible-light quarter-wave-plate (QWP) design spaces evaluated in the
 associated manuscript:
 
@@ -20,6 +20,7 @@ inverse-designed-visible-qwp/
 │   ├── optimized_qwp_binary_structure_3d.txt
 │   ├── optimized_qwp_binary_structure_3d_indexed.csv
 │   ├── source_data/
+│   │   ├── source_data_Figure_2_optimization_history.csv
 │   │   ├── source_data_Figure_3_LCP_response.csv
 │   │   └── source_data_Figure_4_Jones_matrix.csv
 │   ├── five_layer/
@@ -102,11 +103,38 @@ parameter definition avoids grid-dependent geometric approximation. The
 NPY-based renderer described below therefore applies to the fully free-form
 and five-layer structures.
 
-## Source data for Figures 3 and 4
+## Source data for Figures 2--4
 
-The `data/source_data/` directory contains the numerical data used for the
-spectral plots and reported metrics in Figures 3 and 4. Both files cover
-`500–600 nm` at `1 nm` intervals.
+The `data/source_data/` directory contains the numerical data underlying the
+optimization-history and spectral-analysis plots in Figures 2--4.
+
+### Figure 2(a): Optimization history
+
+```text
+data/source_data/source_data_Figure_2_optimization_history.csv
+```
+
+This file contains the recorded objective-function evaluations and related
+optimization metrics over 140 iterations. The columns `global_iteration` and
+`normalized_FOM` are included explicitly for reproducing the blue normalized
+FOM curve in Figure 2(a), where
+
+```text
+normalized_FOM = F_avg / max(F_avg)
+```
+
+across the 140 recorded evaluations. The remaining columns preserve the
+original optimization log, including the beta-continuation stage, evaluation
+number within each stage, objective value, gradient norm, step norm,
+transmission-related metric, leakage-related metric, minimum objective value,
+and average absolute phase error.
+
+The black binarization-degree curve and the intermediate structure snapshots
+shown in Figure 2(a) are not contained in this CSV.
+
+### Figures 3 and 4: Spectral source data
+
+The Figure 3 and Figure 4 files cover `500–600 nm` at `1 nm` intervals.
 
 ### Figure 3: LCP response
 
