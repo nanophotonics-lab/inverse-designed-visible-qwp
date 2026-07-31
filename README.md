@@ -1,8 +1,9 @@
 # Visible QWP design structures
 
-This repository provides the final structure data and a three-dimensional
-rendering script for the visible-light quarter-wave-plate (QWP) design spaces
-evaluated in the associated manuscript:
+This repository provides the final structure data, source data underlying
+Figures 3 and 4, and a three-dimensional rendering script for the
+visible-light quarter-wave-plate (QWP) design spaces evaluated in the
+associated manuscript:
 
 1. fully free-form inverse design;
 2. five-layer constrained inverse design;
@@ -18,6 +19,9 @@ inverse-designed-visible-qwp/
 │   ├── optimized_qwp_binary_structure_3d.npy
 │   ├── optimized_qwp_binary_structure_3d.txt
 │   ├── optimized_qwp_binary_structure_3d_indexed.csv
+│   ├── source_data/
+│   │   ├── source_data_Figure_3_LCP_response.csv
+│   │   └── source_data_Figure_4_Jones_matrix.csv
 │   ├── five_layer/
 │   │   ├── five_layer_qwp_binary_structure_3d.npy
 │   │   ├── five_layer_qwp_binary_structure_3d.txt
@@ -98,6 +102,59 @@ parameter definition avoids grid-dependent geometric approximation. The
 NPY-based renderer described below therefore applies to the fully free-form
 and five-layer structures.
 
+## Source data for Figures 3 and 4
+
+The `data/source_data/` directory contains the numerical data used for the
+spectral plots and reported metrics in Figures 3 and 4. Both files cover
+`500–600 nm` at `1 nm` intervals.
+
+### Figure 3: LCP response
+
+```text
+data/source_data/source_data_Figure_3_LCP_response.csv
+```
+
+This file contains the spectral response under left-circularly polarized
+(LCP) incidence, including:
+
+- total transmitted power normalized to the air-reference flux;
+- projected transmission into the target `+45°` linear-polarization channel;
+- overlaps with linear and circular analyzer bases;
+- signed phase mismatch between the transmitted `Ex` and `Ey` components.
+
+Columns ending in `_percent` are reported in percent. `delta_deg` is the
+signed phase mismatch in degrees. The columns `retardance_deg` and
+`retardance_deg_plus90` are auxiliary quantities derived from the LCP-output
+phase mismatch and should not be confused with the Jones-matrix retardance
+reported for Figure 4.
+
+### Figure 4: Jones-matrix analysis
+
+```text
+data/source_data/source_data_Figure_4_Jones_matrix.csv
+```
+
+This file contains the normalized complex Jones-matrix coefficients,
+
+```text
+t_xx, t_xy, t_yx, t_yy
+```
+
+stored as separate real and imaginary parts, together with their squared
+magnitudes, diagonal phases, phase retardance, quarter-wave-plate error, and
+the total transmitted powers for x- and y-polarized incidence.
+
+The transmitted powers are evaluated as
+
+```text
+T_x = |t_xx|^2 + |t_yx|^2
+T_y = |t_xy|^2 + |t_yy|^2
+```
+
+The Jones coefficients and squared magnitudes are dimensionless.
+`phase_txx_rad` and `phase_tyy_rad` are in radians, whereas
+`retardance_deg` and `qwp_error_deg` are in degrees.
+
 ## 3D unit-cell rendering
 
 Install the required packages from the repository root:
@@ -161,7 +218,8 @@ The indexed CSV files contain explicit `ix`, `iy`, `iz`, and `rho` columns.
 
 ## Citation
 
-When using these structures or scripts, please cite the associated manuscript:
+When using these structures, source data, or scripts, please cite the
+associated manuscript:
 
 > [Manuscript citation to be added after publication.]
 
