@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Shared geometry and material definitions for QWP forward simulations.
 
 All lengths are expressed in micrometers, following Meep's dimensionless-unit
