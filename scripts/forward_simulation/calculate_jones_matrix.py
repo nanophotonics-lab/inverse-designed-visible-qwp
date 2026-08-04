@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Forward verification of the final inverse-designed visible QWP.
 
 The script loads the full 3D rho array and can calculate:
