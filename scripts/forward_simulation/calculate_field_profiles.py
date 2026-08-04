@@ -1,13 +1,10 @@
-#!/usr/bin/env python3
-"""Calculate y=0 electric-field amplitude profiles of the final QWP.
+"""Calculate y=0 electric-field profiles of the final QWP structure.
 
-For each wavelength, the script calculates:
-  - |Ex| at y=0 under x-polarized incidence, and
-  - |Ey| at y=0 under y-polarized incidence.
+The default output is Re(Ex) for x-polarized incidence and Re(Ey) for
+y-polarized incidence. Use ``--field-quantity amplitude`` for |Ex| and |Ey|.
 
-The figure uses the design-region coordinate z=0...0.6 um and overlays the
-voxelized TiO2/air boundary without contour interpolation. Raw and normalized
-arrays are also saved for reuse.
+The script saves the field maps, voxelized structure boundary, and raw and
+normalized arrays.
 """
 
 from __future__ import annotations
@@ -56,7 +53,7 @@ mp.verbosity(1 if is_master else 0)
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Calculate y=0 field-amplitude profiles of the final QWP."
+        description="Calculate y=0 real or amplitude field profiles of the final QWP."
     )
     parser.add_argument(
         "--rho",
@@ -114,9 +111,30 @@ def parse_arguments() -> argparse.Namespace:
         help="Threshold used with --binarize. Default: 0.5.",
     )
     parser.add_argument(
+        "--field-quantity",
+        choices=("real", "amplitude"),
+        default="real",
+        help=(
+            "Displayed/saved field quantity. 'real' reproduces Figure 6(a); "
+            "'amplitude' saves |E|. Default: real."
+        ),
+    )
+    parser.add_argument(
+        "--real-field-percentile",
+        type=float,
+        default=100.0,
+        help=(
+            "Percentile of |Re(E)| used for the symmetric real-field display "
+            "scale. Default: 100."
+        ),
+    )
+    parser.add_argument(
         "--cmap",
-        default="hot",
-        help="Matplotlib colormap. Default: hot.",
+        default=None,
+        help=(
+            "Matplotlib colormap. Defaults to RdBu_r for real fields and hot "
+            "for amplitude fields."
+        ),
     )
     parser.add_argument(
         "--interpolation",
@@ -167,8 +185,12 @@ def validate_arguments(args: argparse.Namespace) -> np.ndarray:
         raise ValueError("decay tolerance and source bandwidth must be positive")
     if not 0 <= args.vmin_percentile < args.vmax_percentile <= 100:
         raise ValueError("percentiles must satisfy 0 <= vmin < vmax <= 100")
+    if not 0 < args.real_field_percentile <= 100:
+        raise ValueError("real-field percentile must lie in (0, 100]")
     if args.dpi <= 0:
         raise ValueError("dpi must be positive")
+    if args.cmap is None:
+        args.cmap = "RdBu_r" if args.field_quantity == "real" else "hot"
     return wavelengths_nm
 
 
@@ -259,11 +281,22 @@ def run_field_volume(
     return fields
 
 
-def center_y_amplitude(field: np.ndarray) -> np.ndarray:
-    """Return |E(x,y=0,z)| from a complex E(x,y,z) array."""
+def center_y_field(
+    field: np.ndarray,
+    *,
+    quantity: str,
+) -> np.ndarray:
+    """Return Re(E) or |E| on the y=0 center plane."""
 
-    y_index = field.shape[1] // 2
-    return np.abs(field[:, y_index, :])
+    selected = np.asarray(field)
+    y_index = selected.shape[1] // 2
+    center_slice = selected[:, y_index, :]
+
+    if quantity == "real":
+        return np.real(center_slice)
+    if quantity == "amplitude":
+        return np.abs(center_slice)
+    raise ValueError(f"unsupported field quantity: {quantity}")
 
 
 def calculate_maps_for_wavelength(
@@ -275,6 +308,7 @@ def calculate_maps_for_wavelength(
     fwidth_fraction: float,
     tio2: mp.Medium,
     material_grid: mp.MaterialGrid,
+    field_quantity: str,
 ) -> dict[str, np.ndarray | float]:
     frequency = 1000.0 / float(wavelength_nm)
     x_fields = run_field_volume(
@@ -299,8 +333,14 @@ def calculate_maps_for_wavelength(
     )
     return {
         "wavelength_nm": float(wavelength_nm),
-        "xpol_ex_y0_abs_xz": center_y_amplitude(x_fields["Ex"]),
-        "ypol_ey_y0_abs_xz": center_y_amplitude(y_fields["Ey"]),
+        "xpol_field_y0_xz": center_y_field(
+            x_fields["Ex"],
+            quantity=field_quantity,
+        ),
+        "ypol_field_y0_xz": center_y_field(
+            y_fields["Ey"],
+            quantity=field_quantity,
+        ),
     }
 
 
@@ -309,7 +349,13 @@ def structure_center_y(rho_3d: np.ndarray) -> np.ndarray:
     return np.asarray(rho_3d[:, y_index, :], dtype=float)
 
 
-def percentile_limits(arrays: list[np.ndarray], lower: float, upper: float) -> tuple[float, float]:
+def percentile_limits(
+    arrays: list[np.ndarray],
+    lower: float,
+    upper: float,
+) -> tuple[float, float]:
+    """Return ordinary percentile limits for nonnegative amplitude maps."""
+
     values = [
         np.asarray(array, dtype=float)[np.isfinite(array)].ravel()
         for array in arrays
@@ -326,29 +372,80 @@ def percentile_limits(arrays: list[np.ndarray], lower: float, upper: float) -> t
     return vmin, vmax
 
 
-def normalize(array: np.ndarray, vmin: float, vmax: float) -> np.ndarray:
-    return np.clip((np.asarray(array, dtype=float) - vmin) / (vmax - vmin), 0.0, 1.0)
+def symmetric_real_limits(
+    arrays: list[np.ndarray],
+    percentile: float,
+) -> tuple[float, float]:
+    """Return a zero-centered display range for signed real fields."""
+
+    values = [
+        np.asarray(array, dtype=float)[np.isfinite(array)].ravel()
+        for array in arrays
+        if np.asarray(array).size
+    ]
+    values = [value for value in values if value.size]
+    if not values:
+        return -1.0, 1.0
+
+    merged = np.concatenate(values)
+    vmax = float(np.percentile(np.abs(merged), percentile))
+    if not np.isfinite(vmax) or vmax <= 0:
+        vmax = 1.0
+    return -vmax, vmax
+
+
+def normalize_amplitude(array: np.ndarray, vmin: float, vmax: float) -> np.ndarray:
+    return np.clip(
+        (np.asarray(array, dtype=float) - vmin) / (vmax - vmin),
+        0.0,
+        1.0,
+    )
+
+
+def normalize_real(array: np.ndarray, vmin: float, vmax: float) -> np.ndarray:
+    scale = max(abs(vmin), abs(vmax))
+    if not np.isfinite(scale) or scale <= 0:
+        scale = 1.0
+    return np.clip(np.asarray(array, dtype=float) / scale, -1.0, 1.0)
 
 
 def normalize_maps(
     results: dict[float, dict[str, np.ndarray | float]],
-    lower_percentile: float,
-    upper_percentile: float,
+    *,
+    args: argparse.Namespace,
 ) -> tuple[dict[float, dict[str, np.ndarray]], tuple[float, float], tuple[float, float]]:
-    x_limits = percentile_limits(
-        [result["xpol_ex_y0_abs_xz"] for result in results.values()],
-        lower_percentile,
-        upper_percentile,
-    )
-    y_limits = percentile_limits(
-        [result["ypol_ey_y0_abs_xz"] for result in results.values()],
-        lower_percentile,
-        upper_percentile,
-    )
+    """Normalize each polarization with one shared scale across wavelengths."""
+
+    x_arrays = [result["xpol_field_y0_xz"] for result in results.values()]
+    y_arrays = [result["ypol_field_y0_xz"] for result in results.values()]
+
+    if args.field_quantity == "real":
+        x_limits = symmetric_real_limits(x_arrays, args.real_field_percentile)
+        y_limits = symmetric_real_limits(y_arrays, args.real_field_percentile)
+        normalizer = normalize_real
+    else:
+        x_limits = percentile_limits(
+            x_arrays,
+            args.vmin_percentile,
+            args.vmax_percentile,
+        )
+        y_limits = percentile_limits(
+            y_arrays,
+            args.vmin_percentile,
+            args.vmax_percentile,
+        )
+        normalizer = normalize_amplitude
+
     normalized = {
         wavelength_nm: {
-            "xpol_ex_y0_abs_xz": normalize(result["xpol_ex_y0_abs_xz"], *x_limits),
-            "ypol_ey_y0_abs_xz": normalize(result["ypol_ey_y0_abs_xz"], *y_limits),
+            "xpol_field_y0_xz": normalizer(
+                result["xpol_field_y0_xz"],
+                *x_limits,
+            ),
+            "ypol_field_y0_xz": normalizer(
+                result["ypol_field_y0_xz"],
+                *y_limits,
+            ),
         }
         for wavelength_nm, result in results.items()
     }
@@ -424,8 +521,17 @@ def overlay_structure(
                 LineCollection(
                     segments,
                     colors="white",
-                    linewidths=0.65,
-                    alpha=0.99,
+                    linewidths=0.90,
+                    alpha=1.0,
+                    zorder=4,
+                )
+            )
+            axis.add_collection(
+                LineCollection(
+                    segments,
+                    colors="black",
+                    linewidths=0.35,
+                    alpha=1.0,
                     zorder=5,
                 )
             )
@@ -480,13 +586,39 @@ def plot_profiles(
         wspace=0.130,
         hspace=0.140,
     )
-    figure.text(0.030, 0.955, "(a)", fontsize=10.0, fontweight="bold", ha="left", va="top")
-    axes[0, 0].set_title(r"x-pol, $|E_x|$", fontsize=8.2, pad=5)
-    axes[0, 1].set_title(r"y-pol, $|E_y|$", fontsize=8.2, pad=5)
+
+    if args.field_quantity == "real":
+        x_title = r"x-pol, Re$(E_x)$"
+        y_title = r"y-pol, Re$(E_y)$"
+        colorbar_label = r"Normalized Re$(E)$"
+        display_min, display_max = -1.0, 1.0
+        colorbar_ticks = [-1.0, -0.5, 0.0, 0.5, 1.0]
+    else:
+        x_title = r"x-pol, $|E_x|$"
+        y_title = r"y-pol, $|E_y|$"
+        colorbar_label = r"Normalized $|E|$"
+        display_min, display_max = 0.0, 1.0
+        colorbar_ticks = [0.0, 0.25, 0.5, 0.75, 1.0]
+
+    axes[0, 0].set_title(x_title, fontsize=8.2, pad=5)
+    axes[0, 1].set_title(y_title, fontsize=8.2, pad=5)
+    axes[0, 0].text(
+        -0.105,
+        1.035,
+        "(a)",
+        transform=axes[0, 0].transAxes,
+        fontsize=6.5,
+        ha="left",
+        va="bottom",
+        color="black",
+        clip_on=False,
+    )
 
     image = None
     for row, wavelength_nm in enumerate(wavelengths):
-        for column, key in enumerate(("xpol_ex_y0_abs_xz", "ypol_ey_y0_abs_xz")):
+        for column, key in enumerate(
+            ("xpol_field_y0_xz", "ypol_field_y0_xz")
+        ):
             axis = axes[row, column]
             image = axis.imshow(
                 normalized[wavelength_nm][key].T,
@@ -494,8 +626,8 @@ def plot_profiles(
                 extent=[-LX_UM / 2.0, LX_UM / 2.0, 0.0, LZ_UM],
                 aspect="auto",
                 cmap=args.cmap,
-                vmin=0.0,
-                vmax=1.0,
+                vmin=display_min,
+                vmax=display_max,
                 interpolation=args.interpolation,
                 rasterized=True,
                 zorder=1,
@@ -512,36 +644,45 @@ def plot_profiles(
             axis.set_yticks([0.0, 0.2, 0.4, 0.6])
             axis.set_xticks([-0.10, -0.05, 0.00, 0.05, 0.10])
             axis.tick_params(top=False, right=False, labelsize=5.8)
+
             if row != row_count - 1:
                 axis.set_xticklabels([])
             else:
                 axis.set_xlabel(r"$x$ ($\mu$m)", fontsize=8.0, labelpad=2)
+
             if column == 0:
                 axis.set_ylabel(r"$z$ ($\mu$m)", fontsize=8.0, labelpad=5.0)
+                axis.text(
+                    0.018,
+                    0.945,
+                    rf"$\lambda={wavelength_nm:g}\,\mathrm{{nm}}$",
+                    transform=axis.transAxes,
+                    fontsize=6.5,
+                    ha="left",
+                    va="top",
+                    color="black",
+                    zorder=30,
+                )
             else:
                 axis.tick_params(labelleft=False)
 
-        axes[row, 0].text(
-            -0.205,
-            0.50,
-            rf"$\lambda={wavelength_nm:g}\,\mathrm{{nm}}$",
-            transform=axes[row, 0].transAxes,
-            rotation=90,
-            va="center",
-            ha="center",
-            fontsize=6.5,
-        )
-
     if image is None:
         raise RuntimeError("no field maps were generated")
-    color_axis = figure.add_axes([0.895, 0.120, 0.015, 0.785])
-    colorbar = figure.colorbar(image, cax=color_axis, ticks=[0.0, 0.25, 0.5, 0.75, 1.0])
-    colorbar.set_label(r"Normalized $|E|$", rotation=90, labelpad=8, fontsize=6.5)
-    colorbar.ax.tick_params(labelsize=5.8, width=0.65, length=2.5, direction="in")
 
-    png_path = output_dir / "field_profiles_y0.png"
-    pdf_path = output_dir / "field_profiles_y0.pdf"
-    svg_path = output_dir / "field_profiles_y0.svg"
+    color_axis = figure.add_axes([0.895, 0.120, 0.015, 0.785])
+    colorbar = figure.colorbar(image, cax=color_axis, ticks=colorbar_ticks)
+    colorbar.set_label(colorbar_label, rotation=90, labelpad=8, fontsize=6.5)
+    colorbar.ax.tick_params(
+        labelsize=5.8,
+        width=0.65,
+        length=2.5,
+        direction="in",
+    )
+
+    base = output_dir / f"field_profiles_y0_{args.field_quantity}"
+    png_path = base.with_suffix(".png")
+    pdf_path = base.with_suffix(".pdf")
+    svg_path = base.with_suffix(".svg")
     figure.savefig(png_path, dpi=args.dpi)
     figure.savefig(pdf_path, dpi=args.dpi)
     figure.savefig(svg_path, dpi=args.dpi)
@@ -562,15 +703,27 @@ def save_arrays(
         "design_region_um": np.array([LX_UM, LY_UM, LZ_UM]),
         "simulation_resolution": np.array([args.resolution]),
         "design_resolution": np.array([args.design_resolution]),
+        "field_quantity": np.array([args.field_quantity]),
         "structure_y0_xz": structure_xz,
     }
+
+    quantity_tag = "real" if args.field_quantity == "real" else "abs"
     for wavelength_nm, result in results.items():
         tag = f"{wavelength_nm:g}nm".replace(".", "p")
-        arrays[f"xpol_ex_y0_abs_xz_raw_{tag}"] = result["xpol_ex_y0_abs_xz"]
-        arrays[f"ypol_ey_y0_abs_xz_raw_{tag}"] = result["ypol_ey_y0_abs_xz"]
-        arrays[f"xpol_ex_y0_abs_xz_normalized_{tag}"] = normalized[wavelength_nm]["xpol_ex_y0_abs_xz"]
-        arrays[f"ypol_ey_y0_abs_xz_normalized_{tag}"] = normalized[wavelength_nm]["ypol_ey_y0_abs_xz"]
-    path = output_dir / "field_profiles_y0_arrays.npz"
+        arrays[
+            f"xpol_ex_y0_{quantity_tag}_xz_raw_{tag}"
+        ] = result["xpol_field_y0_xz"]
+        arrays[
+            f"ypol_ey_y0_{quantity_tag}_xz_raw_{tag}"
+        ] = result["ypol_field_y0_xz"]
+        arrays[
+            f"xpol_ex_y0_{quantity_tag}_xz_normalized_{tag}"
+        ] = normalized[wavelength_nm]["xpol_field_y0_xz"]
+        arrays[
+            f"ypol_ey_y0_{quantity_tag}_xz_normalized_{tag}"
+        ] = normalized[wavelength_nm]["ypol_field_y0_xz"]
+
+    path = output_dir / f"field_profiles_y0_{args.field_quantity}_arrays.npz"
     np.savez_compressed(path, **arrays)
     return path
 
@@ -584,6 +737,30 @@ def save_metadata(
     x_limits: tuple[float, float],
     y_limits: tuple[float, float],
 ) -> Path:
+    if args.field_quantity == "real":
+        field_quantities = [
+            "Re(Ex(x,y=0,z)) under x-polarized incidence",
+            "Re(Ey(x,y=0,z)) under y-polarized incidence",
+        ]
+        normalization = {
+            "type": "symmetric_about_zero",
+            "x_polarization_common_raw_limits": list(x_limits),
+            "y_polarization_common_raw_limits": list(y_limits),
+            "absolute_value_percentile": args.real_field_percentile,
+        }
+    else:
+        field_quantities = [
+            "|Ex(x,y=0,z)| under x-polarized incidence",
+            "|Ey(x,y=0,z)| under y-polarized incidence",
+        ]
+        normalization = {
+            "type": "ordinary_min_max",
+            "x_polarization_common_raw_limits": list(x_limits),
+            "y_polarization_common_raw_limits": list(y_limits),
+            "vmin_percentile": args.vmin_percentile,
+            "vmax_percentile": args.vmax_percentile,
+        }
+
     metadata = {
         "source_rho": str(args.rho.expanduser().resolve()),
         "wavelengths_nm": wavelengths_nm.tolist(),
@@ -594,19 +771,11 @@ def save_metadata(
         "material_grid": {"grid_type": "U_MEAN", "do_averaging": False},
         "tio2_eps_inf": TIO2_EPS_INF,
         "tio2_lorentz_params": list(TIO2_LORENTZ_PARAMS),
-        "field_quantities": [
-            "|Ex(x,y=0,z)| under x-polarized incidence",
-            "|Ey(x,y=0,z)| under y-polarized incidence",
-        ],
+        "field_quantity": args.field_quantity,
+        "field_quantities": field_quantities,
         "field_volume": "design region only",
         "display_z_coordinate_um": [0.0, LZ_UM],
-        "normalization": {
-            "x_polarization_common_raw_limits": list(x_limits),
-            "y_polarization_common_raw_limits": list(y_limits),
-            "vmin_percentile": args.vmin_percentile,
-            "vmax_percentile": args.vmax_percentile,
-            "gamma_correction": False,
-        },
+        "normalization": normalization,
         "display": {
             "colormap": args.cmap,
             "interpolation": args.interpolation,
@@ -650,7 +819,10 @@ def main() -> None:
         print(f"simulation res.  : {args.resolution} px/um")
         print("MaterialGrid     : U_MEAN, do_averaging=False")
         print("TiO2 model       : final two-pole Lorentz fit")
-        print("field maps       : |Ex|/|Ey| at y=0 inside design region")
+        if args.field_quantity == "real":
+            print("field maps       : Re(Ex)/Re(Ey) at y=0 inside design region")
+        else:
+            print("field maps       : |Ex|/|Ey| at y=0 inside design region")
         print("=" * 72)
     comm.Barrier()
 
@@ -664,13 +836,13 @@ def main() -> None:
             fwidth_fraction=args.fwidth_frac,
             tio2=tio2,
             material_grid=material_grid,
+            field_quantity=args.field_quantity,
         )
 
     if is_master:
         normalized, x_limits, y_limits = normalize_maps(
             results,
-            args.vmin_percentile,
-            args.vmax_percentile,
+            args=args,
         )
         png_path, pdf_path, svg_path = plot_profiles(
             output_dir,
